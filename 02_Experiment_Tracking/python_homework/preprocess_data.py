@@ -1,83 +1,351 @@
-import os
-import pickle
-import click
-import pandas as pd
-
-from sklearn.feature_extraction import DictVectorizer
-
-
-def dump_pickle(obj, filename: str):
-    with open(filename, "wb") as f_out:
-        return pickle.dump(obj, f_out)
-
-
-def read_dataframe(filename: str):
-    df = pd.read_parquet(filename)
-
-    df['duration'] = df['lpep_dropoff_datetime'] - df['lpep_pickup_datetime']
-    df.duration = df.duration.apply(lambda td: td.total_seconds() / 60)
-    df = df[(df.duration >= 1) & (df.duration <= 60)]
-
-    categorical = ['PULocationID', 'DOLocationID']
-    df[categorical] = df[categorical].astype(str)
-
-    return df
-
-
-def preprocess(df: pd.DataFrame, dv: DictVectorizer, fit_dv: bool = False):
-    df['PU_DO'] = df['PULocationID'] + '_' + df['DOLocationID']
-    categorical = ['PU_DO']
-    numerical = ['trip_distance']
-    dicts = df[categorical + numerical].to_dict(orient='records')
-    if fit_dv:
-        X = dv.fit_transform(dicts)
-    else:
-        X = dv.transform(dicts)
-    return X, dv
-
-
-@click.command()
-@click.option(
-    "--raw_data_path",
-    help="Location where the raw NYC taxi trip data was saved"
-)
-@click.option(
-    "--dest_path",
-    help="Location where the resulting files will be saved"
-)
-def run_data_prep(raw_data_path: str, dest_path: str, dataset: str = "green"):
-    # Load parquet files
-    df_train = read_dataframe(
-        os.path.join(raw_data_path, f"{dataset}_tripdata_2023-01.parquet")
-    )
-    df_val = read_dataframe(
-        os.path.join(raw_data_path, f"{dataset}_tripdata_2023-02.parquet")
-    )
-    df_test = read_dataframe(
-        os.path.join(raw_data_path, f"{dataset}_tripdata_2023-03.parquet")
-    )
-
-    # Extract the target
-    target = 'duration'
-    y_train = df_train[target].values
-    y_val = df_val[target].values
-    y_test = df_test[target].values
-
-    # Fit the DictVectorizer and preprocess data
-    dv = DictVectorizer()
-    X_train, dv = preprocess(df_train, dv, fit_dv=True)
-    X_val, _ = preprocess(df_val, dv, fit_dv=False)
-    X_test, _ = preprocess(df_test, dv, fit_dv=False)
-
-    # Create dest_path folder unless it already exists
-    os.makedirs(dest_path, exist_ok=True)
-
-    # Save DictVectorizer and datasets
-    dump_pickle(dv, os.path.join(dest_path, "dv.pkl"))
-    dump_pickle((X_train, y_train), os.path.join(dest_path, "train.pkl"))
-    dump_pickle((X_val, y_val), os.path.join(dest_path, "val.pkl"))
-    dump_pickle((X_test, y_test), os.path.join(dest_path, "test.pkl"))
-
-
-if __name__ == '__main__':
-    run_data_prep()
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "9af9182c",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Collecting mlflow\n",
+      "  Downloading mlflow-2.22.0-py3-none-any.whl (29.0 MB)\n",
+      "\u001b[K     |████████████████████████████████| 29.0 MB 7.8 MB/s eta 0:00:01s eta 0:00:04     |███████████████████▉            | 18.0 MB 7.8 MB/s eta 0:00:02��        | 21.7 MB 7.8 MB/s eta 0:00:01\n",
+      "\u001b[?25hCollecting mlflow-skinny==2.22.0\n",
+      "  Downloading mlflow_skinny-2.22.0-py3-none-any.whl (6.3 MB)\n",
+      "\u001b[K     |████████████████████████████████| 6.3 MB 65.4 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: scikit-learn<2 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (1.0.2)\n",
+      "Collecting graphene<4\n",
+      "  Downloading graphene-3.4.3-py2.py3-none-any.whl (114 kB)\n",
+      "\u001b[K     |████████████████████████████████| 114 kB 76.1 MB/s eta 0:00:01\n",
+      "\u001b[?25hCollecting gunicorn<24\n",
+      "  Downloading gunicorn-23.0.0-py3-none-any.whl (85 kB)\n",
+      "\u001b[K     |████████████████████████████████| 85 kB 6.9 MB/s  eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: pandas<3 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (1.4.2)\n",
+      "Collecting alembic!=1.10.0,<2\n",
+      "  Downloading alembic-1.16.1-py3-none-any.whl (242 kB)\n",
+      "\u001b[K     |████████████████████████████████| 242 kB 56.7 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: matplotlib<4 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (3.5.1)\n",
+      "Requirement already satisfied: numpy<3 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (1.21.5)\n",
+      "Requirement already satisfied: markdown<4,>=3.3 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (3.3.4)\n",
+      "Requirement already satisfied: Jinja2<4,>=2.11 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (2.11.3)\n",
+      "Collecting pyarrow<20,>=4.0.0\n",
+      "  Downloading pyarrow-19.0.1-cp39-cp39-manylinux_2_28_x86_64.whl (42.1 MB)\n",
+      "\u001b[K     |████████████████████████████████| 42.1 MB 51.5 MB/s eta 0:00:01    |▌                               | 665 kB 36.4 MB/s eta 0:00:02     |████████▌                       | 11.2 MB 36.4 MB/s eta 0:00:01     |████████████▏                   | 16.1 MB 36.4 MB/s eta 0:00:01     |███████████████▊                | 20.7 MB 36.4 MB/s eta 0:00:01     |█████████████████████▏          | 27.8 MB 36.4 MB/s eta 0:00:01\n",
+      "\u001b[?25hCollecting docker<8,>=4.0.0\n",
+      "  Downloading docker-7.1.0-py3-none-any.whl (147 kB)\n",
+      "\u001b[K     |████████████████████████████████| 147 kB 71.0 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: Flask<4 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (1.1.2)\n",
+      "Requirement already satisfied: sqlalchemy<3,>=1.4.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (1.4.32)\n",
+      "Requirement already satisfied: scipy<2 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow) (1.7.3)\n",
+      "Collecting pydantic<3,>=1.10.8\n",
+      "  Downloading pydantic-2.11.5-py3-none-any.whl (444 kB)\n",
+      "\u001b[K     |████████████████████████████████| 444 kB 65.6 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: typing-extensions<5,>=4.0.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (4.1.1)\n",
+      "Collecting cachetools<6,>=5.0.0\n",
+      "  Downloading cachetools-5.5.2-py3-none-any.whl (10 kB)\n",
+      "Collecting fastapi<1\n",
+      "  Downloading fastapi-0.115.12-py3-none-any.whl (95 kB)\n",
+      "\u001b[K     |████████████████████████████████| 95 kB 7.2 MB/s  eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: click<9,>=7.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (8.0.4)\n",
+      "Requirement already satisfied: importlib_metadata!=4.7.0,<9,>=3.7.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (4.11.3)\n",
+      "Collecting opentelemetry-sdk<3,>=1.9.0\n",
+      "  Downloading opentelemetry_sdk-1.33.1-py3-none-any.whl (118 kB)\n",
+      "\u001b[K     |████████████████████████████████| 118 kB 85.8 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: packaging<25 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (21.3)\n",
+      "Collecting sqlparse<1,>=0.4.0\n",
+      "  Downloading sqlparse-0.5.3-py3-none-any.whl (44 kB)\n",
+      "\u001b[K     |████████████████████████████████| 44 kB 5.6 MB/s  eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: requests<3,>=2.17.3 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (2.27.1)\n",
+      "Collecting opentelemetry-api<3,>=1.9.0\n",
+      "  Downloading opentelemetry_api-1.33.1-py3-none-any.whl (65 kB)\n",
+      "\u001b[K     |████████████████████████████████| 65 kB 7.9 MB/s  eta 0:00:01\n",
+      "\u001b[?25hCollecting uvicorn<1\n",
+      "  Downloading uvicorn-0.34.2-py3-none-any.whl (62 kB)\n",
+      "\u001b[K     |████████████████████████████████| 62 kB 415 kB/s  eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: cloudpickle<4 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (2.0.0)\n",
+      "Requirement already satisfied: pyyaml<7,>=5.1 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (6.0)\n",
+      "Collecting gitpython<4,>=3.1.9\n",
+      "  Downloading GitPython-3.1.44-py3-none-any.whl (207 kB)\n",
+      "\u001b[K     |████████████████████████████████| 207 kB 80.4 MB/s eta 0:00:01\n",
+      "\u001b[?25hCollecting databricks-sdk<1,>=0.20.0\n",
+      "  Downloading databricks_sdk-0.54.0-py3-none-any.whl (720 kB)\n",
+      "\u001b[K     |████████████████████████████████| 720 kB 84.1 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: protobuf<7,>=3.12.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from mlflow-skinny==2.22.0->mlflow) (3.19.1)\n",
+      "Requirement already satisfied: tomli in /home/codespace/anaconda3/lib/python3.9/site-packages (from alembic!=1.10.0,<2->mlflow) (1.2.2)\n",
+      "Collecting typing-extensions<5,>=4.0.0\n",
+      "  Downloading typing_extensions-4.13.2-py3-none-any.whl (45 kB)\n",
+      "\u001b[K     |████████████████████████████████| 45 kB 6.9 MB/s  eta 0:00:01\n",
+      "\u001b[?25hCollecting Mako\n",
+      "  Downloading mako-1.3.10-py3-none-any.whl (78 kB)\n",
+      "\u001b[K     |████████████████████████████████| 78 kB 8.6 MB/s  eta 0:00:01\n",
+      "\u001b[?25hCollecting requests<3,>=2.17.3\n",
+      "  Downloading requests-2.32.3-py3-none-any.whl (64 kB)\n",
+      "\u001b[K     |████████████████████████████████| 64 kB 4.5 MB/s  eta 0:00:01\n",
+      "\u001b[?25hCollecting google-auth~=2.0\n",
+      "  Downloading google_auth-2.40.2-py2.py3-none-any.whl (216 kB)\n",
+      "\u001b[K     |████████████████████████████████| 216 kB 80.8 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: urllib3>=1.26.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from docker<8,>=4.0.0->mlflow) (1.26.9)\n",
+      "Collecting starlette<0.47.0,>=0.40.0\n",
+      "  Downloading starlette-0.46.2-py3-none-any.whl (72 kB)\n",
+      "\u001b[K     |████████████████████████████████| 72 kB 276 kB/s  eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: itsdangerous>=0.24 in /home/codespace/anaconda3/lib/python3.9/site-packages (from Flask<4->mlflow) (2.0.1)\n",
+      "Requirement already satisfied: Werkzeug>=0.15 in /home/codespace/anaconda3/lib/python3.9/site-packages (from Flask<4->mlflow) (2.0.3)\n",
+      "Collecting gitdb<5,>=4.0.1\n",
+      "  Downloading gitdb-4.0.12-py3-none-any.whl (62 kB)\n",
+      "\u001b[K     |████████████████████████████████| 62 kB 2.5 MB/s  eta 0:00:01\n",
+      "\u001b[?25hCollecting smmap<6,>=3.0.1\n",
+      "  Downloading smmap-5.0.2-py3-none-any.whl (24 kB)\n",
+      "Requirement already satisfied: rsa<5,>=3.1.4 in /home/codespace/anaconda3/lib/python3.9/site-packages (from google-auth~=2.0->databricks-sdk<1,>=0.20.0->mlflow-skinny==2.22.0->mlflow) (4.7.2)\n",
+      "Requirement already satisfied: pyasn1-modules>=0.2.1 in /home/codespace/anaconda3/lib/python3.9/site-packages (from google-auth~=2.0->databricks-sdk<1,>=0.20.0->mlflow-skinny==2.22.0->mlflow) (0.2.8)\n",
+      "Collecting graphql-relay<3.3,>=3.1\n",
+      "  Downloading graphql_relay-3.2.0-py3-none-any.whl (16 kB)\n",
+      "Collecting graphql-core<3.3,>=3.1\n",
+      "  Downloading graphql_core-3.2.6-py3-none-any.whl (203 kB)\n",
+      "\u001b[K     |████████████████████████████████| 203 kB 82.2 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: python-dateutil<3,>=2.7.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from graphene<4->mlflow) (2.8.2)\n",
+      "Requirement already satisfied: zipp>=0.5 in /home/codespace/anaconda3/lib/python3.9/site-packages (from importlib_metadata!=4.7.0,<9,>=3.7.0->mlflow-skinny==2.22.0->mlflow) (3.7.0)\n",
+      "Requirement already satisfied: MarkupSafe>=0.23 in /home/codespace/anaconda3/lib/python3.9/site-packages (from Jinja2<4,>=2.11->mlflow) (2.0.1)\n",
+      "Requirement already satisfied: cycler>=0.10 in /home/codespace/anaconda3/lib/python3.9/site-packages (from matplotlib<4->mlflow) (0.11.0)\n",
+      "Requirement already satisfied: pyparsing>=2.2.1 in /home/codespace/anaconda3/lib/python3.9/site-packages (from matplotlib<4->mlflow) (3.0.4)\n",
+      "Requirement already satisfied: pillow>=6.2.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from matplotlib<4->mlflow) (9.0.1)\n",
+      "Requirement already satisfied: kiwisolver>=1.0.1 in /home/codespace/anaconda3/lib/python3.9/site-packages (from matplotlib<4->mlflow) (1.3.2)\n",
+      "Requirement already satisfied: fonttools>=4.22.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from matplotlib<4->mlflow) (4.25.0)\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Collecting importlib_metadata!=4.7.0,<9,>=3.7.0\n",
+      "  Downloading importlib_metadata-8.6.1-py3-none-any.whl (26 kB)\n",
+      "Collecting deprecated>=1.2.6\n",
+      "  Downloading Deprecated-1.2.18-py2.py3-none-any.whl (10.0 kB)\n",
+      "Requirement already satisfied: wrapt<2,>=1.10 in /home/codespace/anaconda3/lib/python3.9/site-packages (from deprecated>=1.2.6->opentelemetry-api<3,>=1.9.0->mlflow-skinny==2.22.0->mlflow) (1.12.1)\n",
+      "Collecting zipp>=0.5\n",
+      "  Downloading zipp-3.21.0-py3-none-any.whl (9.6 kB)\n",
+      "Collecting opentelemetry-semantic-conventions==0.54b1\n",
+      "  Downloading opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl (194 kB)\n",
+      "\u001b[K     |████████████████████████████████| 194 kB 86.5 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: pytz>=2020.1 in /home/codespace/anaconda3/lib/python3.9/site-packages (from pandas<3->mlflow) (2021.3)\n",
+      "Requirement already satisfied: pyasn1<0.5.0,>=0.4.6 in /home/codespace/anaconda3/lib/python3.9/site-packages (from pyasn1-modules>=0.2.1->google-auth~=2.0->databricks-sdk<1,>=0.20.0->mlflow-skinny==2.22.0->mlflow) (0.4.8)\n",
+      "Collecting typing-inspection>=0.4.0\n",
+      "  Downloading typing_inspection-0.4.1-py3-none-any.whl (14 kB)\n",
+      "Collecting annotated-types>=0.6.0\n",
+      "  Downloading annotated_types-0.7.0-py3-none-any.whl (13 kB)\n",
+      "Collecting pydantic-core==2.33.2\n",
+      "  Downloading pydantic_core-2.33.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.0 MB)\n",
+      "\u001b[K     |████████████████████████████████| 2.0 MB 58.9 MB/s eta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: six>=1.5 in /home/codespace/anaconda3/lib/python3.9/site-packages (from python-dateutil<3,>=2.7.0->graphene<4->mlflow) (1.16.0)\n",
+      "Requirement already satisfied: certifi>=2017.4.17 in /home/codespace/anaconda3/lib/python3.9/site-packages (from requests<3,>=2.17.3->mlflow-skinny==2.22.0->mlflow) (2021.10.8)\n",
+      "Requirement already satisfied: charset-normalizer<4,>=2 in /home/codespace/anaconda3/lib/python3.9/site-packages (from requests<3,>=2.17.3->mlflow-skinny==2.22.0->mlflow) (2.0.4)\n",
+      "Requirement already satisfied: idna<4,>=2.5 in /home/codespace/anaconda3/lib/python3.9/site-packages (from requests<3,>=2.17.3->mlflow-skinny==2.22.0->mlflow) (3.3)\n",
+      "Requirement already satisfied: threadpoolctl>=2.0.0 in /home/codespace/anaconda3/lib/python3.9/site-packages (from scikit-learn<2->mlflow) (2.2.0)\n",
+      "Requirement already satisfied: joblib>=0.11 in /home/codespace/anaconda3/lib/python3.9/site-packages (from scikit-learn<2->mlflow) (1.1.0)\n",
+      "Requirement already satisfied: greenlet!=0.4.17 in /home/codespace/anaconda3/lib/python3.9/site-packages (from sqlalchemy<3,>=1.4.0->mlflow) (1.1.1)\n",
+      "Collecting anyio<5,>=3.6.2\n",
+      "  Downloading anyio-4.9.0-py3-none-any.whl (100 kB)\n",
+      "\u001b[K     |████████████████████████████████| 100 kB 18.5 MB/s ta 0:00:01\n",
+      "\u001b[?25hRequirement already satisfied: sniffio>=1.1 in /home/codespace/anaconda3/lib/python3.9/site-packages (from anyio<5,>=3.6.2->starlette<0.47.0,>=0.40.0->fastapi<1->mlflow-skinny==2.22.0->mlflow) (1.2.0)\n",
+      "Collecting exceptiongroup>=1.0.2\n",
+      "  Downloading exceptiongroup-1.3.0-py3-none-any.whl (16 kB)\n",
+      "Collecting h11>=0.8\n",
+      "  Downloading h11-0.16.0-py3-none-any.whl (37 kB)\n",
+      "Installing collected packages: zipp, typing-extensions, importlib-metadata, exceptiongroup, deprecated, typing-inspection, smmap, pydantic-core, opentelemetry-api, cachetools, anyio, annotated-types, starlette, requests, pydantic, opentelemetry-semantic-conventions, h11, graphql-core, google-auth, gitdb, uvicorn, sqlparse, opentelemetry-sdk, Mako, graphql-relay, gitpython, fastapi, databricks-sdk, pyarrow, mlflow-skinny, gunicorn, graphene, docker, alembic, mlflow\n",
+      "  Attempting uninstall: zipp\n",
+      "    Found existing installation: zipp 3.7.0\n",
+      "    Uninstalling zipp-3.7.0:\n",
+      "      Successfully uninstalled zipp-3.7.0\n",
+      "  Attempting uninstall: typing-extensions\n",
+      "    Found existing installation: typing-extensions 4.1.1\n",
+      "    Uninstalling typing-extensions-4.1.1:\n",
+      "      Successfully uninstalled typing-extensions-4.1.1\n",
+      "  Attempting uninstall: importlib-metadata\n",
+      "    Found existing installation: importlib-metadata 4.11.3\n",
+      "    Uninstalling importlib-metadata-4.11.3:\n",
+      "      Successfully uninstalled importlib-metadata-4.11.3\n",
+      "  Attempting uninstall: cachetools\n",
+      "    Found existing installation: cachetools 4.2.2\n",
+      "    Uninstalling cachetools-4.2.2:\n",
+      "      Successfully uninstalled cachetools-4.2.2\n",
+      "  Attempting uninstall: anyio\n",
+      "    Found existing installation: anyio 3.5.0\n",
+      "    Uninstalling anyio-3.5.0:\n",
+      "      Successfully uninstalled anyio-3.5.0\n",
+      "  Attempting uninstall: requests\n",
+      "    Found existing installation: requests 2.27.1\n",
+      "    Uninstalling requests-2.27.1:\n",
+      "      Successfully uninstalled requests-2.27.1\n",
+      "  Attempting uninstall: google-auth\n",
+      "    Found existing installation: google-auth 1.33.0\n",
+      "    Uninstalling google-auth-1.33.0:\n",
+      "      Successfully uninstalled google-auth-1.33.0\n",
+      "  Attempting uninstall: pyarrow\n",
+      "    Found existing installation: pyarrow 20.0.0\n",
+      "    Uninstalling pyarrow-20.0.0:\n",
+      "      Successfully uninstalled pyarrow-20.0.0\n",
+      "\u001b[31mERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.\n",
+      "conda-repo-cli 1.0.4 requires pathlib, which is not installed.\n",
+      "anaconda-project 0.10.2 requires ruamel-yaml, which is not installed.\n",
+      "jupyter-server 1.13.5 requires anyio<4,>=3.1.0, but you have anyio 4.9.0 which is incompatible.\n",
+      "google-cloud-storage 1.31.0 requires google-auth<2.0dev,>=1.11.0, but you have google-auth 2.40.2 which is incompatible.\n",
+      "google-cloud-core 1.7.1 requires google-auth<2.0dev,>=1.24.0, but you have google-auth 2.40.2 which is incompatible.\n",
+      "google-api-core 1.25.1 requires google-auth<2.0dev,>=1.21.1, but you have google-auth 2.40.2 which is incompatible.\u001b[0m\n",
+      "Successfully installed Mako-1.3.10 alembic-1.16.1 annotated-types-0.7.0 anyio-4.9.0 cachetools-5.5.2 databricks-sdk-0.54.0 deprecated-1.2.18 docker-7.1.0 exceptiongroup-1.3.0 fastapi-0.115.12 gitdb-4.0.12 gitpython-3.1.44 google-auth-2.40.2 graphene-3.4.3 graphql-core-3.2.6 graphql-relay-3.2.0 gunicorn-23.0.0 h11-0.16.0 importlib-metadata-8.6.1 mlflow-2.22.0 mlflow-skinny-2.22.0 opentelemetry-api-1.33.1 opentelemetry-sdk-1.33.1 opentelemetry-semantic-conventions-0.54b1 pyarrow-19.0.1 pydantic-2.11.5 pydantic-core-2.33.2 requests-2.32.3 smmap-5.0.2 sqlparse-0.5.3 starlette-0.46.2 typing-extensions-4.13.2 typing-inspection-0.4.1 uvicorn-0.34.2 zipp-3.21.0\n"
+     ]
+    }
+   ],
+   "source": [
+    "import os\n",
+    "import pickle\n",
+    "import click\n",
+    "import pandas as pd\n",
+    "\n",
+    "from sklearn.feature_extraction import DictVectorizer\n",
+    "\n",
+    "\n",
+    "def dump_pickle(obj, filename: str):\n",
+    "    with open(filename, \"wb\") as f_out:\n",
+    "        return pickle.dump(obj, f_out)\n",
+    "\n",
+    "\n",
+    "def read_dataframe(filename: str):\n",
+    "    df = pd.read_parquet(filename)\n",
+    "\n",
+    "    df['duration'] = df['lpep_dropoff_datetime'] - df['lpep_pickup_datetime']\n",
+    "    df.duration = df.duration.apply(lambda td: td.total_seconds() / 60)\n",
+    "    df = df[(df.duration >= 1) & (df.duration <= 60)]\n",
+    "\n",
+    "    categorical = ['PULocationID', 'DOLocationID']\n",
+    "    df[categorical] = df[categorical].astype(str)\n",
+    "\n",
+    "    return df\n",
+    "\n",
+    "\n",
+    "def preprocess(df: pd.DataFrame, dv: DictVectorizer, fit_dv: bool = False):\n",
+    "    df['PU_DO'] = df['PULocationID'] + '_' + df['DOLocationID']\n",
+    "    categorical = ['PU_DO']\n",
+    "    numerical = ['trip_distance']\n",
+    "    dicts = df[categorical + numerical].to_dict(orient='records')\n",
+    "    if fit_dv:\n",
+    "        X = dv.fit_transform(dicts)\n",
+    "    else:\n",
+    "        X = dv.transform(dicts)\n",
+    "    return X, dv\n",
+    "\n",
+    "\n",
+    "@click.command()\n",
+    "@click.option(\n",
+    "    \"--raw_data_path\",\n",
+    "    help=\"Location where the raw NYC taxi trip data was saved\"\n",
+    ")\n",
+    "@click.option(\n",
+    "    \"--dest_path\",\n",
+    "    help=\"Location where the resulting files will be saved\"\n",
+    ")\n",
+    "def run_data_prep(raw_data_path: str, dest_path: str, dataset: str = \"green\"):\n",
+    "    # Load parquet files\n",
+    "    df_train = read_dataframe(\n",
+    "        os.path.join(raw_data_path, f\"{dataset}_tripdata_2023-01.parquet\")\n",
+    "    )\n",
+    "    df_val = read_dataframe(\n",
+    "        os.path.join(raw_data_path, f\"{dataset}_tripdata_2023-02.parquet\")\n",
+    "    )\n",
+    "    df_test = read_dataframe(\n",
+    "        os.path.join(raw_data_path, f\"{dataset}_tripdata_2023-03.parquet\")\n",
+    "    )\n",
+    "\n",
+    "    # Extract the target\n",
+    "    target = 'duration'\n",
+    "    y_train = df_train[target].values\n",
+    "    y_val = df_val[target].values\n",
+    "    y_test = df_test[target].values\n",
+    "\n",
+    "    # Fit the DictVectorizer and preprocess data\n",
+    "    dv = DictVectorizer()\n",
+    "    X_train, dv = preprocess(df_train, dv, fit_dv=True)\n",
+    "    X_val, _ = preprocess(df_val, dv, fit_dv=False)\n",
+    "    X_test, _ = preprocess(df_test, dv, fit_dv=False)\n",
+    "\n",
+    "    # Create dest_path folder unless it already exists\n",
+    "    os.makedirs(dest_path, exist_ok=True)\n",
+    "\n",
+    "    # Save DictVectorizer and datasets\n",
+    "    dump_pickle(dv, os.path.join(dest_path, \"dv.pkl\"))\n",
+    "    dump_pickle((X_train, y_train), os.path.join(dest_path, \"train.pkl\"))\n",
+    "    dump_pickle((X_val, y_val), os.path.join(dest_path, \"val.pkl\"))\n",
+    "    dump_pickle((X_test, y_test), os.path.join(dest_path, \"test.pkl\"))\n",
+    "\n",
+    "\n",
+    "if __name__ == '__main__':\n",
+    "    run_data_prep()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "f33d6a48",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import mlflow\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "a321ba8c",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'2.22.0'"
+      ]
+     },
+     "execution_count": 2,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "(mlflow.__version__)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "9e27fb88",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "jan_df= read_dataframe(r'https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-01.parquet')\n",
+    "feb_df=read_dataframe(r'https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-02.parquet')\n",
+    "mar_df= read_dataframe(r'https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-03.parquet')"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.9.12"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
